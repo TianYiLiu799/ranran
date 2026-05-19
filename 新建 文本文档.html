@@ -1,0 +1,726 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Our Two Years of Love</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Italianno&family=Noto+Serif+SC:wght@300;400;700&display=swap" rel="stylesheet">
+
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #0a0a0a;
+            overflow: hidden;
+            font-family: 'Noto Serif SC', serif;
+            color: #ffffff;
+            user-select: none;
+            -webkit-user-select: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        #webgl-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+        }
+
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 10;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+        }
+
+        .title-container {
+            margin-bottom: 20px;
+        }
+
+        .main-title {
+            font-family: 'Italianno', cursive;
+            font-size: clamp(3rem, 8vw, 6rem);
+            margin: 0;
+            letter-spacing: 2px;
+            text-shadow: 0 0 30px rgba(255, 96, 96, 0.5), 0 0 60px rgba(255, 96, 96, 0.2);
+            animation: titleGlow 3s ease-in-out infinite alternate;
+        }
+
+        @keyframes titleGlow {
+            0% { text-shadow: 0 0 20px rgba(255, 96, 96, 0.4), 0 0 40px rgba(255, 96, 96, 0.15); }
+            100% { text-shadow: 0 0 35px rgba(255, 96, 96, 0.6), 0 0 70px rgba(255, 96, 96, 0.3); }
+        }
+
+        .subtitle {
+            font-size: 1rem;
+            font-weight: 300;
+            letter-spacing: 5px;
+            margin-top: 10px;
+            color: #cccccc;
+        }
+
+        .hint-text {
+            position: absolute;
+            bottom: 10%;
+            font-size: 0.9rem;
+            letter-spacing: 3px;
+            opacity: 0.7;
+            animation: pulseHint 2.5s ease-in-out infinite alternate;
+            transition: opacity 1.2s ease-out;
+            cursor: pointer;
+        }
+
+        @keyframes pulseHint {
+            0% { opacity: 0.3; transform: scale(0.97); }
+            100% { opacity: 1; transform: scale(1.03); }
+        }
+
+        /* Loader */
+        #loader {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #0a0a0a;
+            z-index: 100;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            transition: opacity 1s ease-out;
+        }
+
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid rgba(255, 255, 255, 0.08);
+            border-top: 3px solid rgba(255, 255, 255, 0.8);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 24px;
+        }
+
+        .loader-text {
+            font-size: 1rem;
+            letter-spacing: 3px;
+            color: rgba(255, 255, 255, 0.6);
+            animation: fadeText 2s ease-in-out infinite alternate;
+        }
+
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        @keyframes fadeText { 0% { opacity: 0.15; } 100% { opacity: 0.8; } }
+
+        /* Fade out for title/hint on engage */
+        #ui-layer.engaged .main-title,
+        #ui-layer.engaged .subtitle {
+            transition: opacity 2s ease-out, transform 2s ease-out;
+            opacity: 0;
+            transform: translateY(-30px);
+        }
+    </style>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+</head>
+<body>
+
+    <div id="loader">
+        <div class="spinner"></div>
+        <div class="loader-text">正在回忆我们的时光...</div>
+    </div>
+
+    <div id="ui-layer">
+        <div class="title-container">
+            <h1 class="main-title">Our Two Years of Love</h1>
+            <div class="subtitle">致我最爱的冉冉 2026-5-20</div>
+        </div>
+        <div class="hint-text" id="interaction-hint">点击屏幕解锁我们的回忆墙</div>
+    </div>
+
+    <div id="webgl-container"></div>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+        import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+        import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+
+        class App {
+            constructor() {
+                this.state = 'HEART';
+                this.timeAccumulator = 0;
+                this.cards = [];
+                this.transitionProgress = 0;
+
+                this.memories = [
+                    '图片/微信图片_20260519191059_212_322.jpg',
+                    '图片/微信图片_20260519191133_213_322.jpg',
+                    '图片/微信图片_20260519191153_214_322.jpg',
+                    '图片/微信图片_20260519191337_215_322.jpg',
+                    '图片/微信图片_20260519191403_216_322.jpg',
+                    '图片/微信图片_20260519191436_217_322.jpg',
+                    '图片/微信图片_20260519191515_218_322.jpg',
+                    '图片/微信图片_20260519191549_219_322.jpg',
+                ];
+
+                this.init();
+            }
+
+            async init() {
+                this.setupScene();
+                this.setupLights();
+                this.setupParticles();
+                this.setupCoreObject();
+                this.setupHaloRings();
+                await this.setupPhotoWall();
+
+                // Remove loader
+                const loader = document.getElementById('loader');
+                loader.style.opacity = '0';
+                setTimeout(() => { loader.style.display = 'none'; }, 1000);
+
+                // Interaction events
+                document.addEventListener('click', () => this.triggerEngage());
+                document.addEventListener('touchstart', () => this.triggerEngage(), { once: true });
+
+                this.clock = new THREE.Clock();
+                this.animate();
+
+                window.addEventListener('resize', () => this.onWindowResize());
+            }
+
+            /* ------------------------------------------------------------------ */
+            /*  Scene, Renderer, Camera, Post-Processing                           */
+            /* ------------------------------------------------------------------ */
+
+            setupScene() {
+                this.container = document.getElementById('webgl-container');
+
+                this.scene = new THREE.Scene();
+                this.scene.fog = new THREE.FogExp2('#0a0a0a', 0.00015);
+
+                this.camera = new THREE.PerspectiveCamera(
+                    60,
+                    window.innerWidth / window.innerHeight,
+                    0.1,
+                    100
+                );
+                this.camera.position.set(0, 1.5, 14);
+                this.camera.lookAt(0, 0, 0);
+
+                this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+                this.renderer.setSize(window.innerWidth, window.innerHeight);
+                this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+                this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+                this.renderer.toneMappingExposure = 1.2;
+                this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+                this.container.appendChild(this.renderer.domElement);
+
+                // Post-processing
+                this.composer = new EffectComposer(this.renderer);
+                this.composer.addPass(new RenderPass(this.scene, this.camera));
+
+                const bloomPass = new UnrealBloomPass(
+                    new THREE.Vector2(window.innerWidth, window.innerHeight),
+                    0.5,   // strength
+                    0.8,   // radius
+                    0.7    // threshold
+                );
+                this.composer.addPass(bloomPass);
+                this.bloomPass = bloomPass;
+            }
+
+            /* ------------------------------------------------------------------ */
+            /*  Lighting                                                          */
+            /* ------------------------------------------------------------------ */
+
+            setupLights() {
+                this.ambientLight = new THREE.AmbientLight('#ffffff', 0.2);
+                this.scene.add(this.ambientLight);
+
+                this.pointLight = new THREE.PointLight('#ff6060', 20, 30, 1.5);
+                this.pointLight.position.set(0, 2, 3);
+                this.scene.add(this.pointLight);
+
+                this.spotLight = new THREE.SpotLight('#ffffff', 3, 25, Math.PI / 6, 0.3, 0.5);
+                this.spotLight.position.set(5, 8, 5);
+                this.scene.add(this.spotLight);
+
+                this.dirLight = new THREE.DirectionalLight('#ffffff', 0.6);
+                this.dirLight.position.set(-3, 1, -2);
+                this.scene.add(this.dirLight);
+
+                this.dirLight2 = new THREE.DirectionalLight('#ff9999', 0.4);
+                this.dirLight2.position.set(3, -1, 2);
+                this.scene.add(this.dirLight2);
+            }
+
+            /* ------------------------------------------------------------------ */
+            /*  Particles — 5000 dust + 2000 aurora                               */
+            /* ------------------------------------------------------------------ */
+
+            setupParticles() {
+                // --- Dust particles (5000) ---
+                const dustGeo = new THREE.IcosahedronGeometry(0.08, 0);
+                const dustMat = new THREE.MeshStandardMaterial({
+                    color: '#8d948d',
+                    roughness: 1,
+                    metalness: 0.5,
+                    emissive: '#222222',
+                    emissiveIntensity: 0.3,
+                });
+                this.dustMesh = new THREE.InstancedMesh(dustGeo, dustMat, 5000);
+                this.dustMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+
+                const dummy = new THREE.Object3D();
+                this.dustData = [];
+                for (let i = 0; i < 5000; i++) {
+                    const r = 5 + Math.random() * 20;
+                    const theta = Math.random() * Math.PI * 2;
+                    const phi = Math.acos(2 * Math.random() - 1);
+                    const px = r * Math.sin(phi) * Math.cos(theta);
+                    const py = r * Math.sin(phi) * Math.sin(theta);
+                    const pz = r * Math.cos(phi);
+
+                    dummy.position.set(px, py, pz);
+                    const rx = Math.random() * Math.PI;
+                    const ry = Math.random() * Math.PI;
+                    const rz = Math.random() * Math.PI;
+                    dummy.rotation.set(rx, ry, rz);
+                    const s = 0.3 + Math.random() * 1.2;
+                    dummy.scale.setScalar(s);
+                    dummy.updateMatrix();
+                    this.dustMesh.setMatrixAt(i, dummy.matrix);
+
+                    this.dustData.push({
+                        baseX: px, baseY: py, baseZ: pz,
+                        rotX: rx, rotY: ry, rotZ: rz,
+                        scale: s,
+                        speed: 0.1 + Math.random() * 0.5,
+                        amplitude: 0.1 + Math.random() * 0.6,
+                        phase: Math.random() * Math.PI * 2,
+                    });
+                }
+                this.dustMesh.instanceMatrix.needsUpdate = true;
+                this.scene.add(this.dustMesh);
+
+                // --- Aurora particles (2000) ---
+                const auroraGeo = new THREE.SphereGeometry(0.04, 4, 4);
+                const auroraMat = new THREE.MeshBasicMaterial({ color: '#aaccff' });
+                this.auroraMesh = new THREE.InstancedMesh(auroraGeo, auroraMat, 2000);
+                this.auroraMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+
+                this.auroraData = [];
+                for (let i = 0; i < 2000; i++) {
+                    const r = 8 + Math.random() * 18;
+                    const theta = Math.random() * Math.PI * 2;
+                    const phi = Math.acos(2 * Math.random() - 1);
+                    const ax = r * Math.sin(phi) * Math.cos(theta);
+                    const ay = r * Math.sin(phi) * Math.sin(theta);
+                    const az = r * Math.cos(phi);
+                    dummy.position.set(ax, ay, az);
+                    const as = 0.5 + Math.random() * 1.5;
+                    dummy.scale.setScalar(as);
+                    dummy.rotation.set(0, 0, 0);
+                    dummy.updateMatrix();
+                    this.auroraMesh.setMatrixAt(i, dummy.matrix);
+
+                    this.auroraData.push({
+                        baseX: ax, baseY: ay, baseZ: az,
+                        scale: as,
+                        phase: Math.random() * Math.PI * 2,
+                        speed: 0.05 + Math.random() * 0.2,
+                    });
+                }
+                this.auroraMesh.instanceMatrix.needsUpdate = true;
+                this.scene.add(this.auroraMesh);
+            }
+
+            /* ------------------------------------------------------------------ */
+            /*  Core Object — TorusKnot                                            */
+            /* ------------------------------------------------------------------ */
+
+            setupCoreObject() {
+                const knotGeo = new THREE.TorusKnotGeometry(1.0, 0.28, 200, 32);
+                const knotMat = new THREE.MeshPhysicalMaterial({
+                    color: '#ff1a1a',
+                    clearcoat: 1.0,
+                    clearcoatRoughness: 0.1,
+                    roughness: 0.25,
+                    metalness: 0.8,
+                    emissive: '#330000',
+                    emissiveIntensity: 0.4,
+                });
+                this.coreObject = new THREE.Mesh(knotGeo, knotMat);
+                this.scene.add(this.coreObject);
+
+                // Inner glow sphere
+                const glowGeo = new THREE.SphereGeometry(0.6, 32, 32);
+                const glowMat = new THREE.MeshBasicMaterial({
+                    color: '#ff4040',
+                    transparent: true,
+                    opacity: 0.18,
+                });
+                this.glowSphere = new THREE.Mesh(glowGeo, glowMat);
+                this.coreObject.add(this.glowSphere);
+            }
+
+            /* ------------------------------------------------------------------ */
+            /*  Halo Rings                                                        */
+            /* ------------------------------------------------------------------ */
+
+            setupHaloRings() {
+                this.rings = [];
+
+                for (let i = 0; i < 3; i++) {
+                    const r = 1.6 + i * 0.5;
+                    const ringGeo = new THREE.TorusGeometry(r, 0.015, 16, 120);
+                    const ringMat = new THREE.MeshStandardMaterial({
+                        color: '#ff6060',
+                        emissive: '#ff2020',
+                        emissiveIntensity: 0.6,
+                        roughness: 0.3,
+                        metalness: 0.4,
+                    });
+                    const ring = new THREE.Mesh(ringGeo, ringMat);
+                    ring.rotation.x = Math.PI / 2 + (i - 1) * 0.3;
+                    ring.rotation.y = i * 0.5;
+                    ring.userData = { baseRotX: ring.rotation.x, baseRotY: ring.rotation.y, index: i };
+                    this.coreObject.add(ring);
+                    this.rings.push(ring);
+                }
+            }
+
+            /* ------------------------------------------------------------------ */
+            /*  Photo Wall — Dynamic Canvas textures + Card meshes                 */
+            /* ------------------------------------------------------------------ */
+
+            async setupPhotoWall() {
+                this.cardGroup = new THREE.Group();
+                this.scene.add(this.cardGroup);
+
+                const count = this.memories.length;
+                const ringRadius = 7.5;
+
+                for (let i = 0; i < count; i++) {
+                    let texture;
+                    try {
+                        const img = await this.loadImage(this.memories[i]);
+                        texture = this.createCardTexture(img);
+                    } catch (_e) {
+                        texture = this.createFallbackTexture(i);
+                    }
+                    texture.colorSpace = THREE.SRGBColorSpace;
+
+                    // Build card mesh with multi-material
+                    const cardGeo = new THREE.BoxGeometry(3.5, 5, 0.1);
+
+                    const frontMat = new THREE.MeshBasicMaterial({ map: texture });
+                    const sideMat = new THREE.MeshStandardMaterial({
+                        color: '#1a1a1a',
+                        roughness: 0.7,
+                        metalness: 0.3,
+                    });
+
+                    const card = new THREE.Mesh(cardGeo, [sideMat, sideMat, sideMat, sideMat, frontMat, sideMat]);
+                    card.castShadow = false;
+                    card.receiveShadow = false;
+
+                    // --- HEART position: scattered cluster behind core ---
+                    const hx = (Math.random() - 0.5) * 3;
+                    const hy = (Math.random() - 0.5) * 4;
+                    const hz = 1 + Math.random() * 3;
+                    const heartPos = new THREE.Vector3(hx, hy, hz);
+                    card.position.copy(heartPos);
+                    card.rotation.set(
+                        (Math.random() - 0.5) * 0.8,
+                        Math.random() * Math.PI * 2,
+                        (Math.random() - 0.5) * 0.4
+                    );
+
+                    // --- ENGAGE position: ring around center ---
+                    const angle = (i / count) * Math.PI * 2;
+                    const ex = Math.cos(angle) * ringRadius;
+                    const ez = Math.sin(angle) * ringRadius;
+                    const ey = Math.sin(angle * 2) * 0.6;
+                    const engagePos = new THREE.Vector3(ex, ey, ez);
+
+                    // Compute look-at quaternion for facing center
+                    const lookTarget = new THREE.Vector3(0, ey, 0);
+                    const dummy = new THREE.Object3D();
+                    dummy.position.copy(engagePos);
+                    dummy.lookAt(lookTarget);
+                    const engageQuat = dummy.quaternion.clone();
+
+                    card.userData = {
+                        heartPos: heartPos.clone(),
+                        heartQuat: card.quaternion.clone(),
+                        engagePos,
+                        engageQuat,
+                    };
+
+                    this.cardGroup.add(card);
+                    this.cards.push(card);
+                }
+            }
+
+            async loadImage(url) {
+                return new Promise((resolve, reject) => {
+                    const img = new Image();
+                    img.crossOrigin = 'anonymous';
+                    img.onload = () => resolve(img);
+                    img.onerror = () => reject(new Error('Failed to load: ' + url));
+                    img.src = url;
+                });
+            }
+
+            createCardTexture(img) {
+                const w = 400;
+                const h = 600;
+                const canvas = document.createElement('canvas');
+                canvas.width = w;
+                canvas.height = h;
+                const ctx = canvas.getContext('2d');
+
+                // Polaroid-style base
+                ctx.fillStyle = '#f7f3ee';
+                ctx.fillRect(0, 0, w, h);
+
+                // Subtle vignette on the card stock
+                const vignette = ctx.createRadialGradient(w / 2, h / 2, w * 0.4, w / 2, h / 2, w * 0.9);
+                vignette.addColorStop(0, 'rgba(0,0,0,0)');
+                vignette.addColorStop(1, 'rgba(0,0,0,0.08)');
+                ctx.fillStyle = vignette;
+                ctx.fillRect(0, 0, w, h);
+
+                // Photo area
+                const pad = 28;
+                const photoW = w - pad * 2;
+                const photoH = 430;
+                const photoX = pad;
+                const photoY = 32;
+
+                // Photo dark backing
+                ctx.fillStyle = '#111111';
+                ctx.fillRect(photoX, photoY, photoW, photoH);
+
+                // Draw image centered & scaled
+                const scale = Math.min(photoW / img.width, photoH / img.height);
+                const iw = img.width * scale;
+                const ih = img.height * scale;
+                const ix = photoX + (photoW - iw) / 2;
+                const iy = photoY + (photoH - ih) / 2;
+                ctx.drawImage(img, ix, iy, iw, ih);
+
+                // Thin border around photo
+                ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+                ctx.lineWidth = 1;
+                ctx.strokeRect(photoX, photoY, photoW, photoH);
+
+                // Bottom "handwritten" accent line
+                const bottomY = photoY + photoH + 50;
+                ctx.strokeStyle = 'rgba(180,160,140,0.4)';
+                ctx.lineWidth = 0.5;
+                ctx.beginPath();
+                ctx.moveTo(w / 2 - 40, bottomY);
+                ctx.lineTo(w / 2 + 40, bottomY);
+                ctx.stroke();
+
+                return new THREE.CanvasTexture(canvas);
+            }
+
+            createFallbackTexture(index) {
+                const w = 400;
+                const h = 600;
+                const canvas = document.createElement('canvas');
+                canvas.width = w;
+                canvas.height = h;
+                const ctx = canvas.getContext('2d');
+
+                const grad = ctx.createLinearGradient(0, 0, 0, h);
+                grad.addColorStop(0, '#1a1a2e');
+                grad.addColorStop(0.5, '#2d1b3d');
+                grad.addColorStop(1, '#1a1a2e');
+                ctx.fillStyle = grad;
+                ctx.fillRect(0, 0, w, h);
+
+                ctx.fillStyle = 'rgba(255,255,255,0.15)';
+                ctx.font = '28px "Noto Serif SC", serif';
+                ctx.textAlign = 'center';
+                ctx.fillText('回忆 ' + (index + 1), w / 2, h / 2);
+
+                return new THREE.CanvasTexture(canvas);
+            }
+
+            /* ------------------------------------------------------------------ */
+            /*  State Machine — HEART → ENGAGE                                    */
+            /* ------------------------------------------------------------------ */
+
+            triggerEngage() {
+                if (this.state !== 'HEART') return;
+                this.state = 'ENGAGE';
+
+                const hint = document.getElementById('interaction-hint');
+                if (hint) hint.style.opacity = '0';
+
+                const uiLayer = document.getElementById('ui-layer');
+                if (uiLayer) uiLayer.classList.add('engaged');
+            }
+
+            /* ------------------------------------------------------------------ */
+            /*  Animation Loop                                                    */
+            /* ------------------------------------------------------------------ */
+
+            animate() {
+                requestAnimationFrame(() => this.animate());
+
+                const dt = Math.min(this.clock.getDelta(), 0.1);
+                this.timeAccumulator += dt;
+
+                // --- Breathing point light ---
+                const breathe = 20 + Math.sin(this.timeAccumulator * 1.6) * 8;
+                this.pointLight.intensity = breathe;
+
+                // --- Ambient pulse ---
+                const ambPulse = 0.2 + Math.sin(this.timeAccumulator * 0.7) * 0.05;
+                this.ambientLight.intensity = ambPulse;
+
+                if (this.state === 'HEART') {
+                    this.updateHeartState(dt);
+                } else {
+                    this.updateEngageState(dt);
+                }
+
+                // --- Animate dust particles ---
+                this.updateDustParticles();
+
+                // --- Animate aurora particles ---
+                this.updateAuroraParticles();
+
+                // --- Animate halo rings ---
+                for (const ring of this.rings) {
+                    ring.rotation.z += dt * 0.25;
+                    const s = 1 + Math.sin(this.timeAccumulator * 2 + ring.userData.index) * 0.08;
+                    ring.scale.setScalar(s);
+                    ring.material.emissiveIntensity = 0.4 + Math.sin(this.timeAccumulator * 3 + ring.userData.index) * 0.3;
+                }
+
+                // --- Glow sphere pulse ---
+                this.glowSphere.scale.setScalar(1 + Math.sin(this.timeAccumulator * 2.5) * 0.15);
+                this.glowSphere.material.opacity = 0.12 + Math.sin(this.timeAccumulator * 3) * 0.06;
+
+                // --- Render ---
+                this.composer.render();
+            }
+
+            updateHeartState(dt) {
+                // Core slowly rotates via timeAccumulator for seamless transitions
+                this.timeAccumulator += dt * 0.15; // extra slow increment for rotation smoothness
+                this.coreObject.rotation.y = this.timeAccumulator * 0.4;
+                this.coreObject.rotation.x = Math.sin(this.timeAccumulator * 0.3) * 0.25;
+                this.coreObject.rotation.z = Math.cos(this.timeAccumulator * 0.25) * 0.15;
+
+                // Cards drift slightly near their heart positions
+                for (const card of this.cards) {
+                    const ud = card.userData;
+                    card.position.lerp(ud.heartPos, 0.03);
+                    card.quaternion.slerp(ud.heartQuat, 0.03);
+                }
+
+                // Card group slowly rotates
+                this.cardGroup.rotation.y += dt * 0.08;
+            }
+
+            updateEngageState(dt) {
+                // Core object gracefully recedes
+                if (!this._engageScaleTarget) {
+                    this._engageScaleTarget = new THREE.Vector3(0.7, 0.7, 0.7);
+                }
+                this.coreObject.scale.lerp(this._engageScaleTarget, 0.02);
+                this.coreObject.rotation.y += dt * 0.3;
+                this.coreObject.rotation.x += dt * 0.15;
+
+                // Cards lerp to their ring positions
+                this.transitionProgress = Math.min(1, this.transitionProgress + dt * 0.4);
+
+                for (const card of this.cards) {
+                    const ud = card.userData;
+                    card.position.lerp(ud.engagePos, 0.04);
+                    card.quaternion.slerp(ud.engageQuat, 0.04);
+                }
+
+                // Slow auto-rotation of the entire card ring
+                this.cardGroup.rotation.y += dt * 0.12;
+            }
+
+            updateDustParticles() {
+                const dummy = new THREE.Object3D();
+                for (let i = 0; i < 5000; i++) {
+                    const d = this.dustData[i];
+                    const offsetY = Math.sin(this.timeAccumulator * d.speed + d.phase) * d.amplitude;
+                    dummy.position.set(d.baseX, d.baseY + offsetY, d.baseZ);
+                    dummy.rotation.set(d.rotX, d.rotY, d.rotZ);
+                    dummy.scale.setScalar(d.scale);
+                    dummy.updateMatrix();
+                    this.dustMesh.setMatrixAt(i, dummy.matrix);
+                }
+                this.dustMesh.instanceMatrix.needsUpdate = true;
+            }
+
+            updateAuroraParticles() {
+                const dummy = new THREE.Object3D();
+                for (let i = 0; i < 2000; i++) {
+                    const a = this.auroraData[i];
+                    const drift = Math.sin(this.timeAccumulator * a.speed + a.phase) * 0.4;
+                    dummy.position.set(
+                        a.baseX + Math.cos(this.timeAccumulator * a.speed + a.phase) * 0.3,
+                        a.baseY + drift,
+                        a.baseZ + Math.sin(this.timeAccumulator * a.speed + a.phase) * 0.3
+                    );
+                    dummy.rotation.set(0, 0, 0);
+                    dummy.scale.setScalar(a.scale);
+                    dummy.updateMatrix();
+                    this.auroraMesh.setMatrixAt(i, dummy.matrix);
+                }
+                this.auroraMesh.instanceMatrix.needsUpdate = true;
+            }
+
+            /* ------------------------------------------------------------------ */
+            /*  Resize Handler                                                    */
+            /* ------------------------------------------------------------------ */
+
+            onWindowResize() {
+                this.camera.aspect = window.innerWidth / window.innerHeight;
+                this.camera.updateProjectionMatrix();
+                this.renderer.setSize(window.innerWidth, window.innerHeight);
+                this.composer.setSize(window.innerWidth, window.innerHeight);
+            }
+        }
+
+        // Boot
+        new App();
+    </script>
+</body>
+</html>
